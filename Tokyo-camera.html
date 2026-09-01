@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tokyo Camera: Point the Sentence</title>
+<style>
+  :root {
+    --ink: #1b1a17;
+    --paper: #f4efe4;
+    --card: #fffdf8;
+    --red: #c23b22;
+    --gold: #e3b23c;
+    --navy: #1c2a4a;
+    --mute: #6b6458;
+    --ok: #2f7d4a;
+    --bad: #a33b2a;
+    --line: #e6dcc8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Hiragino Sans", "Yu Gothic", "Segoe UI", sans-serif;
+    background:
+      radial-gradient(1200px 500px at 10% -10%, #2a3d6a 0%, transparent 50%),
+      var(--navy);
+    color: var(--ink);
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 16px 14px 48px; }
+  header {
+    color: #f4efe4;
+    margin-bottom: 14px;
+  }
+  header h1 { font-size: 1.35rem; margin: 0 0 4px; letter-spacing: .02em; }
+  header p { margin: 0; color: #c9c2b3; font-size: .92rem; line-height: 1.4; }
+  .panel {
+    background: var(--card);
+    border-radius: 18px;
+    padding: 14px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.22);
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  button, select {
+    font: inherit;
+    border: 0;
+    border-radius: 999px;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  .pill {
+    background: #efe7d6;
+    color: var(--ink);
+  }
+  .pill.on { background: var(--navy); color: #fff; }
+  .pill:disabled { opacity: .45; cursor: not-allowed; }
+  .scene {
+    background: linear-gradient(180deg, #fff8ea, #f3e6cc);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px;
+    margin: 8px 0;
+  }
+  .tag { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--red); }
+  .english { font-size: 1.2rem; margin: 6px 0 4px; font-weight: 650; }
+  .meta { color: var(--mute); font-size: .88rem; }
+  textarea {
+    width: 100%;
+    min-height: 74px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px;
+    font: inherit;
+    resize: vertical;
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .primary { background: var(--red); color: #fff; }
+  .ghost { background: #efe7d6; }
+  .feedback {
+    margin-top: 12px;
+    border-top: 1px dashed var(--line);
+    padding-top: 10px;
+    display: none;
+  }
+  .feedback.show { display: block; }
+  .ok { color: var(--ok); font-weight: 700; }
+  .bad { color: var(--bad); font-weight: 700; }
+  .fix {
+    background: #f7f1e4;
+    border-radius: 12px;
+    padding: 10px;
+    margin-top: 8px;
+  }
+  .stack { display: grid; gap: 8px; margin-top: 8px; }
+  .shot {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 8px 10px;
+  }
+  details { margin-top: 10px; color: var(--mute); }
+  .stat { color: #ddd4c4; font-size: .82rem; margin-top: 8px; }
+  .kana { font-size: 1.05rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Tokyo Camera: Point the Sentence</h1>
+    <p>Polite spoken Japanese for Tokyo. Type romaji. Aim the particle camera — then hear and say the line.</p>
+    <div class="stat" id="stats"></div>
+  </header>
+  <div class="panel">
+    <div class="row" id="levels"></div>
+    <div class="row" id="tracks"></div>
+    <div class="scene">
+      <div class="tag" id="shotTag">Shot</div>
+      <div class="meta" id="scene"></div>
+      <div class="english" id="english"></div>
+      <div class="meta" id="hint"></div>
+    </div>
+    <label for="answer">Your sentence (romaji)</label>
+    <textarea id="answer" placeholder="sumimasen, toire wa doko desu ka"></textarea>
+    <div class="actions">
+      <button class="primary" id="check">Check</button>
+      <button class="ghost" id="hear">Hear model</button>
+      <button class="ghost" id="hintBtn">Hint cameras</button>
+      <button class="ghost" id="next">Next</button>
+    </div>
+    <div class="feedback" id="feedback"></div>
+    <details>
+      <summary>Decision guide</summary>
+      <p>Doer / existence / new / which one? → ga. Already the topic or contrast? → wa. Acted on or space crossed? → o. Arrive, time, receiver, exist, purpose? → ni. Place of doing, tool, cause? → de. Toward? → e. And / with / quote? → to. Also? → mo. From / because? → kara. Up to? → made. Glue nouns? → no.</p>
+    </details>
+  </div>
+</div>
+<script>
+const TRACKS = ["all","people","directions","food","souvenirs","subway"];
+const STORE = "tokyoCamera.v1";
+
+const ITEMS = [
+  // LEVEL 1
+  s(1,"directions","Toilet stall in a station.","Where is the toilet?","toire wa doko desu ka","トイレはどこですか",["wa"],"Topic already in mind: the toilet. Card on the table."),
+  s(1,"food","Ramen counter, picture menu.","This one, please.","kore o kudasai","これをください",["o"],"Arrow on the thing you want given."),
+  s(1,"subway","Yamanote map.","I go to Shibuya.","shibuya ni ikimasu","渋谷に行きます",["ni"],"Pin: landing spot."),
+  s(1,"people","Ticket gate.","We meet at the station.","eki de aimasu","駅で会います",["de"],"Stage of the action, not existence."),
+  s(1,"food","Izakaya table.","Water, please.","mizu o kudasai","水をください",["o"],"Give me water. Arrow."),
+  s(1,"souvenirs","Gransta sweets.","Do you have Tokyo Banana?","tokyo banana ga arimasu ka","東京バナナがありますか",["ga"],"Flashlight: does this item exist here?"),
+  s(1,"people","Shop doorway.","Thank you (to staff).","arigatou gozaimasu","ありがとうございます",[],"Full polite thanks."),
+  s(1,"subway","Taxi door.","To Asakusa, please.","asakusa made onegaishimasu","浅草までお願いします",["made"],"Endpoint of the ride."),
+  s(1,"food","Cafe window.","I drink at a cafe.","kissaten de nomimasu","喫茶店で飲みます",["de"],"Doing-place is a stage."),
+  s(1,"people","Hotel lobby.","I go with a friend.","tomodachi to ikimasu","友達と行きます",["to"],"Companion tie, not meet-target."),
+  s(1,"food","Bakery tray.","Bread too, please.","pan mo kudasai","パンもください",["mo"],"mo takes the object seat."),
+  s(1,"directions","Scramble crossing.","Excuse me, where is Hachiko?","sumimasen hachiko wa doko desu ka","すみません、ハチ公はどこですか",["wa"],"Stop a stranger, then topic + where."),
+
+  // LEVEL 2
+  s(2,"people","Hotel front desk.","Excuse me, do you understand English?","sumimasen eigo ga wakarimasu ka","すみません、英語がわかりますか",["ga"],"Ability/understand often spotlights the thing with ga."),
+  s(2,"food","Restaurant.","Do you have an English menu?","eigo no menyuu wa arimasu ka","英語のメニューはありますか",["no","wa"],"no glues English + menu. Menu is the topic."),
+  s(2,"food","Ramen shop.","Ramen, please.","ramen o kudasai","ラーメンをください",["o"],"Item + o + kudasai."),
+  s(2,"food","Register by the door.","The bill, please.","okaikei onegaishimasu","お会計お願いします",[],"Pay at the counter in Japan."),
+  s(2,"subway","Harajuku stairs.","I go to Harajuku.","harajuku ni ikimasu","原宿に行きます",["ni"],"Destination pin."),
+  s(2,"souvenirs","Souvenir shelf.","This KitKat, please.","kono kitto katto o kudasai","このキットカットをください",["o"],"Pointing object."),
+  s(2,"subway","Shinjuku platforms.","Which platform for Shinjuku-bound trains?","shinjuku yuki wa nanbansen desu ka","新宿行きは何番線ですか",["wa"],"The bound-for train is already the topic."),
+  s(2,"directions","Senso-ji crowd.","Where is the east exit?","higashi guchi wa doko desu ka","東口はどこですか",["wa"],"Named place as topic."),
+  s(2,"people","Busy aisle.","I'm fine / no thank you.","daijoubu desu","大丈夫です",[],"Soft decline to staff."),
+  s(2,"food","Before eating.","I humbly receive (before the meal).","itadakimasu","いただきます",[],"Say it, then eat."),
+
+  // LEVEL 3
+  s(3,"food","Kissaten.","I drink coffee at a cafe.","kissaten de koohii o nomimasu","喫茶店でコーヒーを飲みます",["de","o"],"Stage de + object o."),
+  s(3,"people","Ueno park gate.","I go to Ueno with a friend.","tomodachi to ueno ni ikimasu","友達と上野に行きます",["to","ni"],"Companion to, landing ni."),
+  s(3,"subway","On board.","I go to Shinjuku on this train.","kono densha de shinjuku ni ikimasu","この電車で新宿に行きます",["de","ni"],"Means de, destination ni."),
+  s(3,"souvenirs","Tokyo Station sweets.","Two boxes of Tokyo Banana, please.","tokyo banana o nihako kudasai","東京バナナを二箱ください",["o"],"Object + counter + kudasai."),
+  s(3,"people","Under the clock.","I meet a friend at the station.","eki de tomodachi ni aimasu","駅で友達に会います",["de","ni"],"Meet-place de, meet-target ni."),
+  s(3,"subway","Bus stop.","I go to Asakusa by bus.","basu de asakusa ni ikimasu","バスで浅草に行きます",["de","ni"],"Tool de, pin ni."),
+  s(3,"souvenirs","Depachika.","I buy souvenirs at the department store.","depato de omiyage o kaimasu","デパートでお土産を買います",["de","o"],"Buy-place de."),
+  s(3,"subway","Taxi.","To Tokyo Station, please.","tokyo eki made onegaishimasu","東京駅までお願いします",["made"],"Range end."),
+  s(3,"food","Shared table.","Let's drink tea or something.","ocha demo nomimashou","お茶でも飲みましょう",["mo"],"demo is soft 'or something'."),
+  s(3,"directions","Staff pointing.","Please go straight and turn right.","massugu itte migi ni magatte kudasai","まっすぐ行って右に曲がってください",["ni"],"Turn landing is ni."),
+
+  // LEVEL 4 PAIRS
+  p(4,"subway","Several trains at Ueno.",
+    ["Is THIS the train that goes to Ueno?","kono densha ga ueno ni ikimasu ka","この電車が上野に行きますか",["ga"],"Flashlight: pick this train out of several."],
+    ["Does this train (already our topic) go to Ueno?","kono densha wa ueno ni ikimasu ka","この電車は上野に行きますか",["wa"],"Card: the train is already on the table."]
+  ),
+  p(4,"subway","You were waiting. A train pulls in.",
+    ["A train has arrived.","densha ga kimashita","電車が来ました",["ga"],"Announcement. New thing enters the scene."],
+    ["As for the train, it has arrived.","densha wa kimashita","電車は来ました",["wa"],"You were already talking about that train."]
+  ),
+  p(4,"souvenirs","Clerk and a sweet case.",
+    ["Do you have Tokyo Banana? (does it exist here)","tokyo banana ga arimasu ka","東京バナナがありますか",["ga"],"Existence flashlight."],
+    ["As for Tokyo Banana, do you have it?","tokyo banana wa arimasu ka","東京バナナはありますか",["wa"],"That product is already the topic."]
+  ),
+  p(4,"people","Station meeting spot.",
+    ["I am at the station.","eki ni imasu","駅にいます",["ni"],"Existence pin."],
+    ["We meet at the station.","eki de aimasu","駅で会います",["de"],"Meeting is done on that stage."]
+  ),
+  p(4,"people","Two friends, one plan.",
+    ["I go with a friend.","tomodachi to ikimasu","友達と行きます",["to"],"Companion tie."],
+    ["I meet a friend.","tomodachi ni aimasu","友達に会います",["ni"],"Friend is the landing/target of meet."]
+  ),
+  p(4,"food","Thirsty at the counter.",
+    ["I want water.","mizu ga hoshii desu","水がほしいです",["ga"],"Wanting spotlights the thing with ga."],
+    ["Water, please.","mizu o kudasai","水をください",["o"],"Request: arrow on the object given."]
+  ),
+  p(4,"food","Drink order, contrast.",
+    ["Coffee I drink.","koohii wa nomimasu","コーヒーは飲みます",["wa"],"Contrast card."],
+    ["Tea I don't drink.","ocha wa nomimasen","お茶は飲みません",["wa"],"The other card."]
+  ),
+  p(4,"subway","Planning the loop.",
+    ["To Shinjuku I will go.","shinjuku ni wa ikimasu","新宿には行きます",["ni","wa"],"Particle + wa contrast."],
+    ["To Ikebukuro I will not go.","ikebukuro ni wa ikimasen","池袋には行きません",["ni","wa"],"Same frame, other place."]
+  ),
+
+  // LEVEL 5 scenes as linked singles (player types the prompted line; scene remembers)
+  s(5,"food","Ramen, then pay. First line.","Excuse me, ramen please.","sumimasen ramen o kudasai","すみません、ラーメンをください",["o"],"Call staff, then object request."),
+  s(5,"food","Same shop, leaving.","The bill, please.","okaikei onegaishimasu","お会計お願いします",[],"Register, not the table."),
+  s(5,"subway","Train just arrived. Identify, then topic.","A train has arrived.","densha ga kimashita","電車が来ました",["ga"],"New arrival uses ga."),
+  s(5,"subway","That same train is now the topic.","Does this train go to Ueno?","kono densha wa ueno ni ikimasu ka","この電車は上野に行きますか",["wa"],"Now it is on the table → wa."),
+  s(5,"souvenirs","Buying.","Tokyo Banana, please.","tokyo banana o kudasai","東京バナナをください",["o"],"Object request."),
+  s(5,"souvenirs","Same counter.","How much is it?","ikura desu ka","いくらですか",[],"Price question."),
+  s(5,"directions","Lost at Shibuya.","Excuse me, where is Hachiko?","sumimasen hachiko wa doko desu ka","すみません、ハチ公はどこですか",["wa"],"Stranger + topic where."),
+  s(5,"people","Didn't catch it.","Please say it once more.","mou ichido onegaishimasu","もう一度お願いします",[],"Polite repair line."),
+];
+
+function s(level,track,scene,english,romaji,kana,particles,teach){
+  return { type:"single", level, track, scene, english, accept: extra(romaji), romaji, kana, particles, teach };
+}
+function p(level,track,scene,a,b){
+  const shot = (arr) => ({ english:arr[0], accept:extra(arr[1]), romaji:arr[1], kana:arr[2], particles:arr[3], teach:arr[4] });
+  return { type:"pair", level, track, scene, shots:[shot(a), shot(b)] };
+}
+function extra(r){
+  const n = norm(r);
+  const out = new Set([n]);
+  out.add(n.replace(/\bkore o kudasai\b/,"kore o onegaishimasu"));
+  out.add(n.replace(/\bo kudasai\b/,"o onegaishimasu"));
+  out.add(n.replace(/\bnanbansen\b/,"nanban sen"));
+  out.add(n.replace(/\bnihako\b/,"ni hako"));
+  out.add(n.replace(/\bnihako\b/,"ni-hako"));
+  return [...out];
+}
+
+function norm(str){
+  let s = (str||"").toLowerCase().trim();
+  s = s.replace(/[?!.,，。？！'’]/g," ");
+  s = s.replace(/-/g," ");
+  s = s.replace(/\bwo\b/g,"o");
+  s = s.replace(/\bsi/g,"shi").replace(/\btu/g,"tsu").replace(/\bti/g,"chi");
+  s = s.replace(/\bzya/g,"ja").replace(/\bsya/g,"sha");
+  s = s.replace(/\btoukyou\b|\btohkyoo\b|\btokyo\b/g,"tokyo");
+  s = s.replace(/\bkitkat\b|\bkit kat\b/g,"kitto katto");
+  s = s.replace(/\bkoohi\b|\bkoohii\b|\bcoffee\b|\bkohii\b/g,"koohii");
+  s = s.replace(/\bonegai shimasu\b/g,"onegaishimasu");
+  s = s.replace(/\barigato gozaimasu\b|\barigatou gozaimasu\b/g,"arigatou gozaimasu");
+  s = s.replace(/\bnan ban sen\b|\bnanbansen\b/g,"nanbansen");
+  s = s.replace(/\bni hako\b|\bni-hako\b/g,"nihako");
+  s = s.replace(/\s+/g," ").trim();
+  return s;
+}
+
+let state = load();
+let level = state.level || 1;
+let track = "all";
+let queue = [];
+let idx = 0;
+let shot = 0;
+let lastModel = "";
+
+function load(){
+  try { return JSON.parse(localStorage.getItem(STORE)) || {level:1, done:{}, score:0, tries:0}; }
+  catch { return {level:1, done:{}, score:0, tries:0}; }
+}
+function save(){ localStorage.setItem(STORE, JSON.stringify(state)); }
+
+function pool(){
+  return ITEMS.filter(it => it.level === level && (track==="all" || it.track===track));
+}
+function rebuild(){
+  queue = pool();
+  if (!queue.length) queue = ITEMS.filter(it => it.level===level);
+  idx = 0; shot = 0;
+  renderNav();
+  renderItem();
+}
+
+function current(){
+  const it = queue[idx % queue.length];
+  if (it.type==="pair") return { wrap:it, card: it.shots[shot], pair:true };
+  return { wrap:it, card:it, pair:false };
+}
+
+function renderNav(){
+  const lv = document.getElementById("levels");
+  lv.innerHTML = "";
+  for (let i=1;i<=5;i++){
+    const b = document.createElement("button");
+    b.className = "pill" + (i===level?" on":"");
+    b.textContent = "Lv "+i;
+    b.disabled = i > (state.unlocked || 1) && i>level && i > maxUnlock();
+    b.onclick = () => { level=i; state.level=i; save(); rebuild(); };
+    lv.appendChild(b);
+  }
+  const tr = document.getElementById("tracks");
+  tr.innerHTML = "";
+  TRACKS.forEach(t=>{
+    const b = document.createElement("button");
+    b.className = "pill" + (t===track?" on":"");
+    b.textContent = t;
+    b.onclick = () => { track=t; rebuild(); };
+    tr.appendChild(b);
+  });
+  document.getElementById("stats").textContent =
+    `Score ${state.score}/${state.tries||0} · unlocked through level ${maxUnlock()}`;
+}
+function maxUnlock(){
+  const by = {};
+  ITEMS.forEach(it => { by[it.level]=(by[it.level]||0)+1; });
+  let u = 1;
+  for (let i=1;i<=5;i++){
+    const need = Math.ceil((by[i]||1)*0.8);
+    const got = Object.keys(state.done).filter(k => k.startsWith(i+"-")).length;
+    if (got >= need) u = Math.min(5, i+1);
+    else break;
+  }
+  state.unlocked = u;
+  return u;
+}
+
+function renderItem(){
+  const {wrap, card, pair} = current();
+  document.getElementById("scene").textContent = wrap.scene + " · " + wrap.track;
+  document.getElementById("english").textContent = card.english;
+  document.getElementById("hint").textContent = pair ? `Pair shot ${shot===0?"A":"B"} of 2 — same scene, other camera.` : "Type the polite sentence.";
+  document.getElementById("shotTag").textContent = pair ? (shot===0?"Shot A · flashlight or first camera":"Shot B · the flip") : "Single shot";
+  document.getElementById("answer").value = "";
+  document.getElementById("feedback").className = "feedback";
+  lastModel = card.romaji;
+}
+
+function tokens(s){ return norm(s).split(" ").filter(Boolean); }
+
+function diagnose(card, raw){
+  const n = norm(raw);
+  const ok = card.accept.includes(n) || card.accept.some(a => n===a);
+  const notes = [];
+  if (ok) return {ok:true, notes:["Camera and politeness match."]};
+  const t = tokens(raw);
+  const need = tokens(card.romaji);
+  const joined = " "+n+" ";
+
+  if (/arigatou$/.test(n) && card.romaji.includes("gozaimasu"))
+    notes.push("Formality: staff get arigatou gozaimasu, not short arigatou.");
+  const politeNeed = /desu|masu|kudasai|onegaishimasu|itadakimasu|gozaimasu/.test(card.romaji);
+  if (politeNeed && !/desu|masu|mashita|masen|kudasai|onegaishimasu|itadakimasu|gozaimasu/.test(n))
+    notes.push("Missing polite ending. Keep desu / masu / kudasai / onegaishimasu.");
+  if (card.romaji.endsWith("ka") && !n.endsWith("ka"))
+    notes.push("This is a question. Land on ka.");
+  if (card.romaji.includes("sumimasen") && !n.includes("sumimasen"))
+    notes.push("Stop a stranger or staff with sumimasen first.");
+
+  (card.particles||[]).forEach(p=>{
+    if (!joined.includes(" "+p+" ") && !(p==="wa" && joined.includes(" wa ")))
+      notes.push(`Missing camera 「${p}」. ${cameraTalk(p)}`);
+  });
+  [[" ni "," de ","ni/de: existence/landing uses ni; the stage of doing uses de."],
+   [" ga "," wa ","wa/ga: topic/contrast is wa; new, exist, or 'this one' is ga."],
+   [" to "," ni ","to pairs a companion; ni is the target of meet/give."],
+   [" o "," ga ","Wanting/potential often take ga, not English-object o."]
+  ].forEach(([wrong,right,msg])=>{
+    if (card.romaji.includes(right.trim()) && n.includes(wrong.trim()) && !card.romaji.includes(wrong.trim()))
+      notes.push("Mix-up — "+msg);
+  });
+  if (/\bo mo\b|\bwa mo\b|\bga mo\b/.test(n))
+    notes.push("mo takes the seat of wa / ga / o. Do not stack them.");
+
+  const content = need.filter(w => !["wa","ga","o","ni","de","to","mo","no","e","ka"].includes(w));
+  const missingWord = content.find(w => !n.includes(w) && w.length>3);
+  if (missingWord) notes.push("Word missing or off: "+missingWord+".");
+
+  if (!notes.length) notes.push("Close. Match word order: [known thing + camera] then the verb. Japanese puts the verb last.");
+  return {ok:false, notes};
+}
+
+function cameraTalk(p){
+  return ({
+    wa:"Card already on the table, or contrast.",
+    ga:"Flashlight: doer, existence, identification.",
+    o:"Arrow: thing the verb touches, or space crossed.",
+    ni:"Pin: land, time, receiver, exist, purpose.",
+    de:"Stage: where it is done, tool, cause.",
+    to:"Tie: and / with / quote.",
+    mo:"Plus. Replaces wa/ga/o.",
+    no:"Glue between nouns.",
+    made:"End of the line.",
+    kara:"Start, or because.",
+    e:"Direction toward."
+  })[p] || "";
+}
+
+document.getElementById("check").onclick = () => {
+  const {wrap, card, pair} = current();
+  const raw = document.getElementById("answer").value;
+  state.tries++;
+  const d = diagnose(card, raw);
+  const fb = document.getElementById("feedback");
+  fb.className = "feedback show";
+  if (d.ok){
+    state.score++;
+    const key = wrap.level+"-"+wrap.english+"-"+card.english;
+    state.done[key] = 1;
+    save();
+    let html = `<div class="ok">Good. The camera is right.</div>
+      <div class="fix"><div class="kana">${card.kana}</div><div>${card.romaji}</div>
+      <div class="meta">${card.teach}</div></div>`;
+    if (pair && shot===1){
+      html += `<div class="stack">
+        <div class="shot"><b>A</b> ${wrap.shots[0].romaji}<br><span class="meta">${wrap.shots[0].teach}</span></div>
+        <div class="shot"><b>B</b> ${wrap.shots[1].romaji}<br><span class="meta">${wrap.shots[1].teach}</span></div>
+      </div>`;
+    }
+    fb.innerHTML = html;
+    lastModel = card.romaji;
+  } else {
+    save();
+    fb.innerHTML = `<div class="bad">Not yet. Walkthrough:</div>` +
+      d.notes.map(n=>`<p>${n}</p>`).join("") +
+      `<div class="fix"><b>Fix and say:</b><div class="kana">${card.kana}</div><div>${card.romaji}</div>
+       <div class="meta">${card.teach}</div></div>`;
+    lastModel = card.romaji;
+  }
+  renderNav();
+};
+
+document.getElementById("next").onclick = () => {
+  const {wrap, pair} = current();
+  if (pair && shot===0){ shot=1; renderItem(); return; }
+  shot=0; idx++; renderItem();
+};
+document.getElementById("hintBtn").onclick = () => {
+  const {card} = current();
+  alert("Cameras in play: " + ((card.particles||[]).join(", ") || "polite frame only"));
+};
+document.getElementById("hear").onclick = () => speak(lastModel || current().card.romaji);
+
+function speak(text){
+  if (!window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(text);
+  const v = speechSynthesis.getVoices().find(v => v.lang.startsWith("ja"));
+  if (v) u.voice = v;
+  u.lang = "ja-JP";
+  u.rate = 0.92;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+speechSynthesis.onvoiceschanged = () => {};
+
+rebuild();
+</script>
+</body>
+</html>
